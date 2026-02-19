@@ -1,0 +1,461 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --bg: #0f0f1a;
+  --bg-card: #1a1a2e;
+  --bg-input: #252540;
+  --primary: #6c63ff;
+  --primary-hover: #5a52e0;
+  --text: #e8e8f0;
+  --text-muted: #8888a0;
+  --border: #2a2a45;
+  --danger: #e74c5f;
+  --success: #4ecdc4;
+  --radius: 12px;
+  --nav-height: 60px;
+}
+
+html, body {
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  height: 100%;
+}
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+.app-content {
+  flex: 1;
+  overflow-y: auto;
+  padding-bottom: var(--nav-height);
+}
+
+/* --- Nav Bar --- */
+.nav-bar {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 480px;
+  height: var(--nav-height);
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  background: var(--bg-card);
+  border-top: 1px solid var(--border);
+  z-index: 100;
+}
+
+.nav-link {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-decoration: none;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  padding: 6px 12px;
+  border-radius: 8px;
+  transition: color 0.2s;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.nav-link.active,
+.nav-link:hover {
+  color: var(--primary);
+}
+
+.nav-icon {
+  font-size: 1.3rem;
+}
+
+.nav-logout {
+  color: var(--text-muted);
+}
+
+.nav-logout:hover {
+  color: var(--danger);
+}
+
+/* --- Auth Pages --- */
+.auth-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+.auth-page h1 {
+  font-size: 1.8rem;
+  margin-bottom: 8px;
+}
+
+.auth-page p {
+  color: var(--text-muted);
+  margin-bottom: 24px;
+}
+
+.auth-form {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.auth-form input {
+  width: 100%;
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text);
+  font-size: 1rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.auth-form input:focus {
+  border-color: var(--primary);
+}
+
+.btn {
+  padding: 14px;
+  border-radius: var(--radius);
+  border: none;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn-primary {
+  background: var(--primary);
+  color: white;
+}
+
+.btn-primary:hover {
+  background: var(--primary-hover);
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-danger {
+  background: transparent;
+  color: var(--danger);
+  border: 1px solid var(--danger);
+}
+
+.btn-danger:hover {
+  background: var(--danger);
+  color: white;
+}
+
+.btn-small {
+  padding: 8px 14px;
+  font-size: 0.85rem;
+}
+
+.auth-switch {
+  margin-top: 16px;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.auth-switch a {
+  color: var(--primary);
+  text-decoration: none;
+}
+
+.error-msg {
+  color: var(--danger);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+/* --- Chat Page --- */
+.chat-page {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - var(--nav-height));
+}
+
+.chat-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+}
+
+.chat-header select {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text);
+  font-size: 0.9rem;
+  outline: none;
+}
+
+.chat-header button {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.chat-msg {
+  max-width: 85%;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  font-size: 0.95rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-msg.user {
+  align-self: flex-end;
+  background: var(--primary);
+  color: white;
+  border-bottom-right-radius: 4px;
+}
+
+.chat-msg.assistant {
+  align-self: flex-start;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-bottom-left-radius: 4px;
+}
+
+.chat-input-area {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-card);
+}
+
+.chat-input-area input {
+  flex: 1;
+  padding: 12px 16px;
+  border-radius: 24px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text);
+  font-size: 1rem;
+  outline: none;
+}
+
+.chat-input-area input:focus {
+  border-color: var(--primary);
+}
+
+.chat-input-area button {
+  padding: 12px 20px;
+  border-radius: 24px;
+  border: none;
+  background: var(--primary);
+  color: white;
+  font-size: 1rem;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.chat-input-area button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* --- Recipes Page --- */
+.page-container {
+  padding: 16px;
+}
+
+.page-container h1 {
+  font-size: 1.4rem;
+  margin-bottom: 16px;
+}
+
+.search-sort-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.search-sort-bar input {
+  flex: 1;
+  min-width: 140px;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text);
+  font-size: 0.9rem;
+  outline: none;
+}
+
+.search-sort-bar select {
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text);
+  font-size: 0.85rem;
+  outline: none;
+}
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.card-header h3 {
+  font-size: 1.05rem;
+}
+
+.card-meta {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.card-body {
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.card-body p {
+  margin-bottom: 6px;
+}
+
+.card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.tag {
+  display: inline-block;
+  padding: 3px 8px;
+  background: var(--bg-input);
+  border-radius: 6px;
+  font-size: 0.75rem;
+  margin-right: 4px;
+  margin-bottom: 4px;
+}
+
+/* --- Pantry Page --- */
+.add-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.add-row input {
+  flex: 1;
+  min-width: 100px;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text);
+  font-size: 0.9rem;
+  outline: none;
+}
+
+.pantry-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 8px;
+}
+
+.pantry-item-info {
+  flex: 1;
+}
+
+.pantry-item-name {
+  font-weight: 600;
+}
+
+.pantry-item-detail {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.delete-btn {
+  background: none;
+  border: none;
+  color: var(--danger);
+  cursor: pointer;
+  font-size: 1.2rem;
+  padding: 4px 8px;
+}
+
+.empty-state {
+  text-align: center;
+  color: var(--text-muted);
+  padding: 40px 20px;
+  font-size: 0.95rem;
+}
