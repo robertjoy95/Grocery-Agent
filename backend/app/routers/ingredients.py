@@ -14,7 +14,7 @@ from app.schemas.ingredient import (
     IngredientPhotoScanResponse,
 )
 from app.services.auth import get_current_user
-from app.services.ai import extract_ingredients_from_photo
+from app.services.ai import extract_ingredients_from_photo, _build_user_context
 
 router = APIRouter(prefix="/ingredients", tags=["ingredients"])
 
@@ -76,11 +76,14 @@ async def scan_photo_for_ingredients(
         if isinstance(category, str) and category.strip()
     ]
 
+    user_context = _build_user_context(user.display_name, user.dietary_preferences)
+
     try:
         parsed = await extract_ingredients_from_photo(
             image_bytes=image_bytes,
             image_mime_type=content_type,
             user_categories=user_categories,
+            user_context=user_context,
         )
     except Exception as exc:
         raise HTTPException(

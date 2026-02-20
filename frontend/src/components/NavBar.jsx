@@ -1,9 +1,6 @@
 import { NavLink } from "react-router-dom";
-import { useAuth } from "../context/AuthContext";
 
 export default function NavBar() {
-  const { logout, username } = useAuth();
-
   return (
     <nav className="nav-bar">
       <NavLink to="/chat" className={({ isActive }) => isActive ? "nav-link active" : "nav-link"}>
@@ -18,10 +15,14 @@ export default function NavBar() {
         <span className="nav-icon">🥫</span>
         <span className="nav-label">Pantry</span>
       </NavLink>
-      <button className="nav-link nav-logout" onClick={logout} title={`Signed in as ${username}`}>
-        <span className="nav-icon">↩</span>
-        <span className="nav-label">Logout</span>
-      </button>
+      <NavLink to="/shopping-list" className={({ isActive }) => isActive ? "nav-link active" : "nav-link"}>
+        <span className="nav-icon">🛒</span>
+        <span className="nav-label">Shop</span>
+      </NavLink>
+      <NavLink to="/profile" className={({ isActive }) => isActive ? "nav-link active" : "nav-link"}>
+        <span className="nav-icon">👤</span>
+        <span className="nav-label">Profile</span>
+      </NavLink>
     </nav>
   );
 }

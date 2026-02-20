@@ -12,7 +12,7 @@ from app.models.chat import ChatSession, ChatMessage
 from app.models.user import User
 from app.schemas.chat import ChatSendRequest, ChatSessionOut, ChatMessageOut
 from app.services.auth import get_current_user
-from app.services.ai import stream_agent_response, db_messages_to_langchain
+from app.services.ai import stream_agent_response, db_messages_to_langchain, _build_user_context
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -79,11 +79,12 @@ async def send_message(
     await db.commit()
 
     chat_history = db_messages_to_langchain(session.messages)
+    user_context = _build_user_context(user.display_name, user.dietary_preferences)
 
     collected_tokens: list[str] = []
 
     async def event_stream():
-        async for chunk in stream_agent_response(db, user.id, chat_history, body.message):
+        async for chunk in stream_agent_response(db, user.id, chat_history, body.message, user_context=user_context):
             yield chunk
 
             try:

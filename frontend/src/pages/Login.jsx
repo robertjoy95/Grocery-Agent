@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import remyLogo from "../assets/remy_logo.png";
 
 export default function Login() {
   const [username, setUsername] = useState("");
@@ -26,7 +27,10 @@ export default function Login() {
 
   return (
     <div className="auth-page">
-      <h1>Remy</h1>
+      <div className="auth-brand">
+        <img className="auth-logo" src={remyLogo} alt="Remy logo" />
+        <h1 className="auth-title">Remy</h1>
+      </div>
       <p>Sign in to your account</p>
       <form className="auth-form" onSubmit={handleSubmit}>
         <input
@@ -51,7 +55,7 @@ export default function Login() {
         </button>
       </form>
       <div className="auth-switch">
-        No account? <Link to="/signup">Create one</Link>
+        New here? <Link to="/signup">Create an account</Link>
       </div>
     </div>
   );
