@@ -11,6 +11,10 @@ class IngredientCreate(BaseModel):
     category: str | None = None
 
 
+class IngredientPhotoScanResponse(BaseModel):
+    ingredients: list[IngredientCreate]
+
+
 class IngredientUpdate(BaseModel):
     name: str | None = None
     quantity: str | None = None
