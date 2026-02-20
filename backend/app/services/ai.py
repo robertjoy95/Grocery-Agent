@@ -127,6 +127,79 @@ Rules:
 - If the image has no usable ingredient content, return {"ingredients": []}.
 """
 
+RECIPE_EXTRACTION_PROMPT = """Extract recipes from this conversation transcript.
+
+Return JSON only in this shape:
+{
+  "recipes": [
+    {
+      "name": "string",
+      "description": "string or null",
+      "ingredients": [{"name": "string", "quantity": "string", "unit": "string"}],
+      "prep_time_minutes": "integer or null",
+      "instructions": "string or null",
+      "source": "string or null",
+      "favourite": "boolean",
+      "category": "string or null"
+    }
+  ]
+}
+
+Rules:
+- Include only actual recipes present in the conversation.
+- Do not invent missing details. Use null or empty strings where needed.
+- Ensure each recipe has at least a non-empty name and one ingredient.
+- The "ingredients" field must always be an array.
+"""
+
+RECIPE_IMAGE_EXTRACTION_PROMPT = """Extract recipe text from this photo and return structured JSON.
+
+Return JSON only in this shape:
+{
+  "recipes": [
+    {
+      "name": "string",
+      "description": "string or null",
+      "ingredients": [{"name": "string", "quantity": "string", "unit": "string"}],
+      "prep_time_minutes": "integer or null",
+      "instructions": "string or null",
+      "source": "string or null",
+      "favourite": "boolean",
+      "category": "string or null"
+    }
+  ]
+}
+
+Rules:
+- Parse only recipes visible/readable in the image.
+- Do not invent missing details. Use null or empty strings where needed.
+- Ensure each recipe has at least a non-empty name and one ingredient.
+- If the image has no usable recipe content, return {"recipes": []}.
+- The "ingredients" field must always be an array.
+"""
+
+INGREDIENT_IMAGE_EXTRACTION_PROMPT = """Extract pantry ingredients from this photo and return structured JSON.
+
+Return JSON only in this shape:
+{
+  "ingredients": [
+    {
+      "name": "string",
+      "quantity": "string or empty string",
+      "unit": "string or empty string",
+      "category": "string or null"
+    }
+  ]
+}
+
+Rules:
+- Parse only ingredient items visible/readable in the image (labels, lists, grocery receipts, pantry shelves).
+- Do not invent missing details. Use empty strings for unknown quantity/unit and null for unknown category.
+- Skip entries with empty names.
+- Normalize obvious OCR noise where possible (for example, fix common misspellings if confidence is high).
+- If the image has no usable ingredient content, return {"ingredients": []}.
+"""
+
 
 def build_tools(db: AsyncSession, user_id: uuid.UUID):
     @tool
