@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { api } from "../api/client";
 
 export default function Pantry() {
@@ -7,6 +7,14 @@ export default function Pantry() {
   const [quantity, setQuantity] = useState("");
   const [unit, setUnit] = useState("");
   const [category, setCategory] = useState("");
+  const [importOpen, setImportOpen] = useState(false);
+  const [photoFile, setPhotoFile] = useState(null);
+  const [photoLoading, setPhotoLoading] = useState(false);
+  const [photoError, setPhotoError] = useState("");
+  const [scannedIngredients, setScannedIngredients] = useState([]);
+  const [bulkAdding, setBulkAdding] = useState(false);
+  const uploadPhotoInputRef = useRef(null);
+  const cameraPhotoInputRef = useRef(null);
 
   useEffect(() => {
     loadItems();
@@ -24,16 +32,14 @@ export default function Pantry() {
   async function addItem(e) {
     e.preventDefault();
     if (!name.trim()) return;
+    const payload = {
+      name: name.trim(),
+      quantity: quantity.trim() || null,
+      unit: unit.trim() || null,
+      category: category.trim() || null,
+    };
     try {
-      const item = await api("/ingredients", {
-        method: "POST",
-        body: JSON.stringify({
-          name: name.trim(),
-          quantity: quantity.trim() || null,
-          unit: unit.trim() || null,
-          category: category.trim() || null,
-        }),
-      });
+      const item = await createIngredient(payload);
       setItems((prev) => [...prev, item]);
       setName("");
       setQuantity("");
@@ -41,6 +47,103 @@ export default function Pantry() {
       setCategory("");
     } catch {
       /* empty */
+    }
+  }
+
+  async function createIngredient(payload) {
+    return api("/ingredients", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  }
+
+  function openImportFromPhoto() {
+    setImportOpen(true);
+    setPhotoFile(null);
+    setPhotoError("");
+    setScannedIngredients([]);
+  }
+
+  function closeImportFromPhoto() {
+    setImportOpen(false);
+    setPhotoFile(null);
+    setPhotoLoading(false);
+    setPhotoError("");
+    setScannedIngredients([]);
+  }
+
+  function onPhotoSelected(e) {
+    const selected = e.target.files?.[0] || null;
+    setPhotoFile(selected);
+    setPhotoError("");
+    setScannedIngredients([]);
+  }
+
+  async function scanPhotoForIngredients() {
+    if (!photoFile) return;
+    setPhotoLoading(true);
+    setPhotoError("");
+    setScannedIngredients([]);
+    try {
+      const form = new FormData();
+      form.append("photo", photoFile);
+      const data = await api("/ingredients/scan-photo", {
+        method: "POST",
+        body: form,
+      });
+      setScannedIngredients(data.ingredients || []);
+      if (!data.ingredients || data.ingredients.length === 0) {
+        setPhotoError("No ingredients were detected in that photo.");
+      }
+    } catch (err) {
+      setPhotoError(err.message);
+    } finally {
+      setPhotoLoading(false);
+    }
+  }
+
+  async function addScannedIngredient(index) {
+    const target = scannedIngredients[index];
+    if (!target) return;
+    try {
+      const created = await createIngredient({
+        name: (target.name || "").trim(),
+        quantity: (target.quantity || "").trim() || null,
+        unit: (target.unit || "").trim() || null,
+        category: (target.category || "").trim() || null,
+      });
+      setItems((prev) => [...prev, created]);
+      setScannedIngredients((prev) => prev.filter((_, i) => i !== index));
+    } catch (err) {
+      setPhotoError(err.message);
+    }
+  }
+
+  function removeScannedIngredient(index) {
+    setScannedIngredients((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  async function addAllScannedIngredients() {
+    if (scannedIngredients.length === 0 || bulkAdding) return;
+    setBulkAdding(true);
+    setPhotoError("");
+    try {
+      const createdItems = [];
+      for (const candidate of scannedIngredients) {
+        const created = await createIngredient({
+          name: (candidate.name || "").trim(),
+          quantity: (candidate.quantity || "").trim() || null,
+          unit: (candidate.unit || "").trim() || null,
+          category: (candidate.category || "").trim() || null,
+        });
+        createdItems.push(created);
+      }
+      setItems((prev) => [...prev, ...createdItems]);
+      closeImportFromPhoto();
+    } catch (err) {
+      setPhotoError(err.message);
+    } finally {
+      setBulkAdding(false);
     }
   }
 
@@ -128,6 +231,119 @@ export default function Pantry() {
             ))}
           </div>
         ))}
+
+      <div className="pantry-fab-wrap">
+        <button className="pantry-fab" onClick={openImportFromPhoto}>
+          Import from photo
+        </button>
+      </div>
+
+      {importOpen && (
+        <div className="recipe-overlay" onClick={closeImportFromPhoto}>
+          <div className="recipe-sheet" onClick={(e) => e.stopPropagation()}>
+            <button
+              className="recipe-close-btn"
+              onClick={closeImportFromPhoto}
+              aria-label="Close pantry import modal"
+            >
+              ×
+            </button>
+
+            <div className="recipe-mode-panel">
+              <h2>Import ingredients from photo</h2>
+              <p className="card-meta" style={{ marginBottom: 12 }}>
+                Take a new photo or upload one from your device.
+              </p>
+              <div className="card-actions" style={{ marginBottom: 12 }}>
+                <button
+                  className="btn btn-primary btn-small"
+                  type="button"
+                  onClick={() => uploadPhotoInputRef.current?.click()}
+                >
+                  Upload Photo
+                </button>
+                <button
+                  className="btn btn-primary btn-small"
+                  type="button"
+                  onClick={() => cameraPhotoInputRef.current?.click()}
+                >
+                  Take Photo
+                </button>
+              </div>
+              <input
+                ref={uploadPhotoInputRef}
+                type="file"
+                accept="image/*"
+                style={{ display: "none" }}
+                onChange={onPhotoSelected}
+              />
+              <input
+                ref={cameraPhotoInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                style={{ display: "none" }}
+                onChange={onPhotoSelected}
+              />
+              {photoFile && (
+                <p className="card-meta" style={{ marginBottom: 12 }}>
+                  Selected: {photoFile.name}
+                </p>
+              )}
+              <button
+                className="btn btn-primary btn-small"
+                type="button"
+                disabled={!photoFile || photoLoading}
+                onClick={scanPhotoForIngredients}
+              >
+                {photoLoading ? "Scanning photo..." : "Extract Ingredients"}
+              </button>
+              {photoError && <p className="error-msg">{photoError}</p>}
+
+              <div className="scanned-recipes-list">
+                {scannedIngredients.map((ingredient, index) => (
+                  <div className="card" key={`${ingredient.name}-${index}`}>
+                    <div className="card-header">
+                      <h3>{ingredient.name}</h3>
+                    </div>
+                    <div className="card-meta">
+                      {(ingredient.quantity || ingredient.unit) &&
+                        `${ingredient.quantity || ""} ${ingredient.unit || ""}`.trim()}
+                      {ingredient.category ? ` · ${ingredient.category}` : ""}
+                    </div>
+                    <div className="card-actions">
+                      <button
+                        className="btn btn-primary btn-small"
+                        onClick={() => addScannedIngredient(index)}
+                      >
+                        Add
+                      </button>
+                      <button
+                        className="btn btn-danger btn-small"
+                        onClick={() => removeScannedIngredient(index)}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {scannedIngredients.length > 0 && (
+                <div className="scanned-recipes-action-bar">
+                  <button
+                    className="btn btn-primary"
+                    onClick={addAllScannedIngredients}
+                    disabled={bulkAdding}
+                  >
+                    {bulkAdding ? "Adding..." : "Add All Ingredients"}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

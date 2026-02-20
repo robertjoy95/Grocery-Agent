@@ -1,14 +1,20 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.ingredient import HouseholdIngredient
 from app.models.user import User
-from app.schemas.ingredient import IngredientCreate, IngredientUpdate, IngredientOut
+from app.schemas.ingredient import (
+    IngredientCreate,
+    IngredientUpdate,
+    IngredientOut,
+    IngredientPhotoScanResponse,
+)
 from app.services.auth import get_current_user
+from app.services.ai import extract_ingredients_from_photo
 
 router = APIRouter(prefix="/ingredients", tags=["ingredients"])
 
@@ -43,6 +49,53 @@ async def create_ingredient(
     await db.commit()
     await db.refresh(item)
     return item
+
+
+@router.post("/scan-photo", response_model=IngredientPhotoScanResponse)
+async def scan_photo_for_ingredients(
+    photo: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    content_type = (photo.content_type or "").lower()
+    if not content_type.startswith("image/"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file must be an image")
+
+    image_bytes = await photo.read()
+    if not image_bytes:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded image is empty")
+
+    category_rows = await db.execute(
+        select(HouseholdIngredient.category)
+        .where(HouseholdIngredient.user_id == user.id, HouseholdIngredient.category.is_not(None))
+        .distinct()
+    )
+    user_categories = [
+        category.strip()
+        for category in category_rows.scalars().all()
+        if isinstance(category, str) and category.strip()
+    ]
+
+    try:
+        parsed = await extract_ingredients_from_photo(
+            image_bytes=image_bytes,
+            image_mime_type=content_type,
+            user_categories=user_categories,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Ingredient extraction from image failed: {exc}",
+        ) from exc
+
+    ingredients: list[IngredientCreate] = []
+    for candidate in parsed:
+        try:
+            ingredients.append(IngredientCreate.model_validate(candidate))
+        except Exception:
+            continue
+
+    return IngredientPhotoScanResponse(ingredients=ingredients)
 
 
 @router.put("/{item_id}", response_model=IngredientOut)

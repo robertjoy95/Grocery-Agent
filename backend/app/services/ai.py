@@ -1,6 +1,7 @@
+import base64
 import json
 import uuid
-from typing import AsyncGenerator
+from typing import Any, AsyncGenerator
 
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.tools import tool
@@ -27,6 +28,79 @@ When a user tells you about ingredients they have or bought, use the pantry tool
 Be concise and practical. Format recipes clearly with ingredients, prep time, and step-by-step instructions.
 When suggesting a meal plan, organize it by day and include a consolidated shopping list at the end."""
 
+RECIPE_EXTRACTION_PROMPT = """Extract recipes from this conversation transcript.
+
+Return JSON only in this shape:
+{
+  "recipes": [
+    {
+      "name": "string",
+      "description": "string or null",
+      "ingredients": [{"name": "string", "quantity": "string", "unit": "string"}],
+      "prep_time_minutes": "integer or null",
+      "instructions": "string or null",
+      "source": "string or null",
+      "favourite": "boolean",
+      "category": "string or null"
+    }
+  ]
+}
+
+Rules:
+- Include only actual recipes present in the conversation.
+- Do not invent missing details. Use null or empty strings where needed.
+- Ensure each recipe has at least a non-empty name and one ingredient.
+- The "ingredients" field must always be an array.
+"""
+
+RECIPE_IMAGE_EXTRACTION_PROMPT = """Extract recipe text from this photo and return structured JSON.
+
+Return JSON only in this shape:
+{
+  "recipes": [
+    {
+      "name": "string",
+      "description": "string or null",
+      "ingredients": [{"name": "string", "quantity": "string", "unit": "string"}],
+      "prep_time_minutes": "integer or null",
+      "instructions": "string or null",
+      "source": "string or null",
+      "favourite": "boolean",
+      "category": "string or null"
+    }
+  ]
+}
+
+Rules:
+- Parse only recipes visible/readable in the image.
+- Do not invent missing details. Use null or empty strings where needed.
+- Ensure each recipe has at least a non-empty name and one ingredient.
+- If the image has no usable recipe content, return {"recipes": []}.
+- The "ingredients" field must always be an array.
+"""
+
+INGREDIENT_IMAGE_EXTRACTION_PROMPT = """Extract pantry ingredients from this photo and return structured JSON.
+
+Return JSON only in this shape:
+{
+  "ingredients": [
+    {
+      "name": "string",
+      "quantity": "string or empty string",
+      "unit": "string or empty string",
+      "category": "string or null"
+    }
+  ]
+}
+
+Rules:
+- Parse only ingredient items visible/readable in the image (labels, lists, grocery receipts, pantry shelves).
+- Do not invent missing details. Use empty strings for unknown quantity/unit and null for unknown category.
+- Skip entries with empty names.
+- Normalize obvious OCR noise where possible (for example, fix common misspellings if confidence is high).
+- If the image has no usable ingredient content, return {"ingredients": []}.
+"""
+
 
 def build_tools(db: AsyncSession, user_id: uuid.UUID):
     @tool
@@ -37,6 +111,8 @@ def build_tools(db: AsyncSession, user_id: uuid.UUID):
         prep_time_minutes: int,
         instructions: str,
         source: str = "AI generated",
+        favourite: bool = False,
+        category: str = "",
     ) -> str:
         """Save a recipe to the user's collection.
 
@@ -47,6 +123,8 @@ def build_tools(db: AsyncSession, user_id: uuid.UUID):
             prep_time_minutes: Estimated prep/cook time in minutes
             instructions: Step-by-step cooking instructions
             source: Where the recipe came from
+            favourite: Whether recipe should be starred as favorite
+            category: Recipe category like dinner, breakfast, dessert
         """
         try:
             parsed = json.loads(ingredients)
@@ -61,6 +139,8 @@ def build_tools(db: AsyncSession, user_id: uuid.UUID):
             prep_time_minutes=prep_time_minutes,
             instructions=instructions,
             source=source,
+            favourite=favourite,
+            category=category or None,
         )
         db.add(recipe)
         await db.commit()
@@ -167,3 +247,172 @@ async def stream_agent_response(
                 yield f"data: {json.dumps({'token': chunk.content})}\n\n"
 
     yield f"data: {json.dumps({'done': True})}\n\n"
+
+
+async def extract_recipes_from_transcript(
+    transcript: str,
+    user_categories: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Parse recipe objects from a chat transcript using the LLM."""
+    llm = ChatOpenAI(
+        model="gpt-4o",
+        api_key=settings.openai_api_key,
+        temperature=0,
+        streaming=False,
+    )
+    categories = sorted(
+        {
+            category.strip()
+            for category in (user_categories or [])
+            if isinstance(category, str) and category.strip()
+        }
+    )
+    category_block = (
+        "User categories:\n"
+        + "\n".join(f"- {category}" for category in categories)
+        + "\nUse one of these categories when it fits. If none fit, return null for category."
+        if categories
+        else "User categories:\n- (none)\nIf no category is clear, return null for category."
+    )
+    prompt = (
+        f"{RECIPE_EXTRACTION_PROMPT}\n\n"
+        f"{category_block}\n\n"
+        f"Conversation transcript:\n{transcript}"
+    )
+    response = await llm.ainvoke([SystemMessage(content=prompt)])
+    content = (response.content or "").strip()
+
+    # Models sometimes wrap JSON in code fences; strip those safely.
+    if content.startswith("```"):
+        lines = content.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        content = "\n".join(lines).strip()
+        if content.lower().startswith("json"):
+            content = content[4:].strip()
+
+    data = json.loads(content)
+    recipes = data.get("recipes", [])
+    if not isinstance(recipes, list):
+        return []
+    return recipes
+
+
+async def extract_recipes_from_photo(
+    image_bytes: bytes,
+    image_mime_type: str,
+    user_categories: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Parse recipe objects from a recipe photo using the multimodal model."""
+    llm = ChatOpenAI(
+        model="gpt-4o",
+        api_key=settings.openai_api_key,
+        temperature=0,
+        streaming=False,
+    )
+    categories = sorted(
+        {
+            category.strip()
+            for category in (user_categories or [])
+            if isinstance(category, str) and category.strip()
+        }
+    )
+    category_block = (
+        "User categories:\n"
+        + "\n".join(f"- {category}" for category in categories)
+        + "\nUse one of these categories when it fits. If none fit, return null for category."
+        if categories
+        else "User categories:\n- (none)\nIf no category is clear, return null for category."
+    )
+    image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+    prompt = f"{RECIPE_IMAGE_EXTRACTION_PROMPT}\n\n{category_block}"
+    response = await llm.ainvoke(
+        [
+            HumanMessage(
+                content=[
+                    {"type": "text", "text": prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{image_mime_type};base64,{image_base64}"},
+                    },
+                ]
+            )
+        ]
+    )
+    content = (response.content or "").strip()
+    if content.startswith("```"):
+        lines = content.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        content = "\n".join(lines).strip()
+        if content.lower().startswith("json"):
+            content = content[4:].strip()
+
+    data = json.loads(content)
+    recipes = data.get("recipes", [])
+    if not isinstance(recipes, list):
+        return []
+    return recipes
+
+
+async def extract_ingredients_from_photo(
+    image_bytes: bytes,
+    image_mime_type: str,
+    user_categories: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Parse pantry ingredient objects from a photo using the multimodal model."""
+    llm = ChatOpenAI(
+        model="gpt-4o",
+        api_key=settings.openai_api_key,
+        temperature=0,
+        streaming=False,
+    )
+    categories = sorted(
+        {
+            category.strip()
+            for category in (user_categories or [])
+            if isinstance(category, str) and category.strip()
+        }
+    )
+    category_block = (
+        "User categories:\n"
+        + "\n".join(f"- {category}" for category in categories)
+        + "\nUse one of these categories when it fits. If none fit, return null for category."
+        if categories
+        else "User categories:\n- (none)\nIf no category is clear, return null for category."
+    )
+    image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+    prompt = f"{INGREDIENT_IMAGE_EXTRACTION_PROMPT}\n\n{category_block}"
+    response = await llm.ainvoke(
+        [
+            HumanMessage(
+                content=[
+                    {"type": "text", "text": prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{image_mime_type};base64,{image_base64}"},
+                    },
+                ]
+            )
+        ]
+    )
+    content = (response.content or "").strip()
+    if content.startswith("```"):
+        lines = content.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        content = "\n".join(lines).strip()
+        if content.lower().startswith("json"):
+            content = content[4:].strip()
+
+    data = json.loads(content)
+    ingredients = data.get("ingredients", [])
+    if not isinstance(ingredients, list):
+        return []
+    return ingredients
