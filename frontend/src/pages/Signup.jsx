@@ -27,7 +27,7 @@ export default function Signup() {
 
   return (
     <div className="auth-page">
-      <h1>Grocery Agent</h1>
+      <h1>Remy</h1>
       <p>Create a new account</p>
       <form className="auth-form" onSubmit={handleSubmit}>
         <input

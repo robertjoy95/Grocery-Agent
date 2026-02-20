@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, Text, Integer, DateTime, ForeignKey, func
+from sqlalchemy import String, Text, Integer, DateTime, ForeignKey, func, Boolean
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -19,6 +19,8 @@ class Recipe(Base):
     prep_time_minutes: Mapped[int | None] = mapped_column(Integer)
     instructions: Mapped[str | None] = mapped_column(Text)
     source: Mapped[str | None] = mapped_column(String(300))
+    favourite: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    category: Mapped[str | None] = mapped_column(String(100))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="recipes")

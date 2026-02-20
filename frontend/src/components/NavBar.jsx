@@ -20,7 +20,7 @@ export default function NavBar() {
       </NavLink>
       <button className="nav-link nav-logout" onClick={logout} title={`Signed in as ${username}`}>
         <span className="nav-icon">↩</span>
-        <span className="nav-label">Out</span>
+        <span className="nav-label">Logout</span>
       </button>
     </nav>
   );

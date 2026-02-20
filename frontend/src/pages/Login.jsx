@@ -26,7 +26,7 @@ export default function Login() {
 
   return (
     <div className="auth-page">
-      <h1>Grocery Agent</h1>
+      <h1>Remy</h1>
       <p>Sign in to your account</p>
       <form className="auth-form" onSubmit={handleSubmit}>
         <input

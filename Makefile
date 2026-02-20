@@ -9,6 +9,8 @@ start:
 stop:
 	docker compose --env-file $(ENV_FILE) -f $(COMPOSE_FILE) down
 
+fresh-start: stop clean start
+
 restart: stop start
 
 build:

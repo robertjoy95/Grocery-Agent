@@ -18,6 +18,16 @@ class RecipeCreate(BaseModel):
     prep_time_minutes: int | None = None
     instructions: str | None = None
     source: str | None = None
+    favourite: bool = False
+    category: str | None = None
+
+
+class RecipeConversationScanRequest(BaseModel):
+    session_id: uuid.UUID
+
+
+class RecipeConversationScanResponse(BaseModel):
+    recipes: list[RecipeCreate]
 
 
 class RecipeUpdate(BaseModel):
@@ -27,6 +37,8 @@ class RecipeUpdate(BaseModel):
     prep_time_minutes: int | None = None
     instructions: str | None = None
     source: str | None = None
+    favourite: bool | None = None
+    category: str | None = None
 
 
 class RecipeOut(BaseModel):
@@ -37,6 +49,8 @@ class RecipeOut(BaseModel):
     prep_time_minutes: int | None
     instructions: str | None
     source: str | None
+    favourite: bool
+    category: str | None
     created_at: datetime
 
     model_config = {"from_attributes": True}
