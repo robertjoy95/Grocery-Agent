@@ -14,6 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.models.recipe import Recipe
 from app.models.ingredient import HouseholdIngredient
+from app.models.shopping_list import ShoppingList
+from app.services.shopping_list import finalize_shopping_items
 
 SYSTEM_PROMPT = """You are a friendly grocery and meal-planning assistant. You help users:
 - Plan meals for the week before they go grocery shopping
@@ -21,12 +23,109 @@ SYSTEM_PROMPT = """You are a friendly grocery and meal-planning assistant. You h
 - Suggest recipes using ingredients they already have at home
 - When they're at the grocery store, suggest recipes and shopping list additions based on ingredients they see
 
-You have access to tools that let you save recipes and manage the user's household pantry.
+You have access to tools that let you save recipes, manage the user's household pantry, and manage shopping lists.
 When a user asks you to save a recipe, use the save_recipe tool with all the structured fields.
 When a user tells you about ingredients they have or bought, use the pantry tools to track them.
+When a user asks to create or update a shopping list, use the create_shopping_list tool.
 
 Be concise and practical. Format recipes clearly with ingredients, prep time, and step-by-step instructions.
-When suggesting a meal plan, organize it by day and include a consolidated shopping list at the end."""
+When suggesting a meal plan, organize it by day and include a consolidated shopping list at the end.
+
+{user_context}"""
+
+
+def _build_user_context(
+    display_name: str | None,
+    dietary_preferences: dict[str, Any] | None,
+) -> str:
+    """Build a context block describing the user's profile for injection into prompts."""
+    parts: list[str] = []
+    if display_name:
+        parts.append(f"The user's name is {display_name}. Address them by name when appropriate.")
+
+    prefs = dietary_preferences or {}
+    dietary = prefs.get("dietary", [])
+    notes = prefs.get("notes", "")
+
+    if dietary:
+        parts.append(f"Dietary preferences: {', '.join(dietary)}. Always respect these when suggesting recipes or meals.")
+    if notes:
+        parts.append(f"Additional notes from the user: {notes}")
+
+    return "\n".join(parts) if parts else ""
+
+RECIPE_EXTRACTION_PROMPT = """Extract recipes from this conversation transcript.
+
+Return JSON only in this shape:
+{
+  "recipes": [
+    {
+      "name": "string",
+      "description": "string or null",
+      "ingredients": [{"name": "string", "quantity": "string", "unit": "string"}],
+      "prep_time_minutes": "integer or null",
+      "instructions": "string or null",
+      "source": "string or null",
+      "favourite": "boolean",
+      "category": "string or null"
+    }
+  ]
+}
+
+Rules:
+- Include only actual recipes present in the conversation.
+- Do not invent missing details. Use null or empty strings where needed.
+- Ensure each recipe has at least a non-empty name and one ingredient.
+- The "ingredients" field must always be an array.
+"""
+
+RECIPE_IMAGE_EXTRACTION_PROMPT = """Extract recipe text from this photo and return structured JSON.
+
+Return JSON only in this shape:
+{
+  "recipes": [
+    {
+      "name": "string",
+      "description": "string or null",
+      "ingredients": [{"name": "string", "quantity": "string", "unit": "string"}],
+      "prep_time_minutes": "integer or null",
+      "instructions": "string or null",
+      "source": "string or null",
+      "favourite": "boolean",
+      "category": "string or null"
+    }
+  ]
+}
+
+Rules:
+- Parse only recipes visible/readable in the image.
+- Do not invent missing details. Use null or empty strings where needed.
+- Ensure each recipe has at least a non-empty name and one ingredient.
+- If the image has no usable recipe content, return {"recipes": []}.
+- The "ingredients" field must always be an array.
+"""
+
+INGREDIENT_IMAGE_EXTRACTION_PROMPT = """Extract pantry ingredients from this photo and return structured JSON.
+
+Return JSON only in this shape:
+{
+  "ingredients": [
+    {
+      "name": "string",
+      "quantity": "string or empty string",
+      "unit": "string or empty string",
+      "category": "string or null"
+    }
+  ]
+}
+
+Rules:
+- Parse only ingredient items visible/readable in the image (labels, lists, grocery receipts, pantry shelves).
+- Do not invent missing details. Use empty strings for unknown quantity/unit and null for unknown category.
+- Skip entries with empty names.
+- Normalize obvious OCR noise where possible (for example, fix common misspellings if confidence is high).
+- If the image has no usable ingredient content, return {"ingredients": []}.
+"""
 
 RECIPE_EXTRACTION_PROMPT = """Extract recipes from this conversation transcript.
 
@@ -196,10 +295,58 @@ def build_tools(db: AsyncSession, user_id: uuid.UUID):
         lines = [f"- {i.name}: {i.quantity} {i.unit} ({i.category})" for i in items]
         return "Current pantry:\n" + "\n".join(lines)
 
-    return [save_recipe, add_pantry_item, remove_pantry_item, get_pantry]
+    @tool
+    async def create_shopping_list(ingredients: str) -> str:
+        """Create or update the user's shopping list based on needed ingredients.
+
+        Args:
+            ingredients: JSON list of ingredient items. Each item should include at least "name",
+                and can also include quantity, unit, and category.
+        """
+        parsed: Any = []
+        try:
+            parsed = json.loads(ingredients)
+        except json.JSONDecodeError:
+            parsed = [{"name": ingredients}]
+
+        if isinstance(parsed, dict):
+            parsed = parsed.get("ingredients", [])
+        if not isinstance(parsed, list):
+            parsed = []
+
+        pantry_result = await db.execute(
+            select(HouseholdIngredient).where(HouseholdIngredient.user_id == user_id)
+        )
+        pantry_items = pantry_result.scalars().all()
+
+        list_result = await db.execute(
+            select(ShoppingList).where(ShoppingList.user_id == user_id)
+        )
+        shopping_list = list_result.scalar_one_or_none()
+        if not shopping_list:
+            shopping_list = ShoppingList(user_id=user_id, items=[])
+            db.add(shopping_list)
+            await db.flush()
+
+        finalized, excluded = finalize_shopping_items(
+            existing_items=shopping_list.items,
+            pantry_items=[{"name": item.name} for item in pantry_items],
+            candidate_items=parsed,
+        )
+        shopping_list.items = finalized
+        await db.commit()
+
+        return json.dumps(
+            {
+                "shopping_list": finalized,
+                "excluded_as_in_pantry": excluded,
+            }
+        )
+
+    return [save_recipe, add_pantry_item, remove_pantry_item, get_pantry, create_shopping_list]
 
 
-def build_agent(db: AsyncSession, user_id: uuid.UUID):
+def build_agent(db: AsyncSession, user_id: uuid.UUID, user_context: str = ""):
     llm = ChatOpenAI(
         model="gpt-4o",
         api_key=settings.openai_api_key,
@@ -207,8 +354,9 @@ def build_agent(db: AsyncSession, user_id: uuid.UUID):
         streaming=True,
     )
     tools = build_tools(db, user_id)
+    system_prompt = SYSTEM_PROMPT.format(user_context=user_context)
     prompt = ChatPromptTemplate.from_messages([
-        ("system", SYSTEM_PROMPT),
+        ("system", system_prompt),
         MessagesPlaceholder(variable_name="chat_history"),
         ("human", "{input}"),
         MessagesPlaceholder(variable_name="agent_scratchpad"),
@@ -232,9 +380,10 @@ async def stream_agent_response(
     user_id: uuid.UUID,
     chat_history: list,
     user_input: str,
+    user_context: str = "",
 ) -> AsyncGenerator[str, None]:
     """Stream the agent response token by token via SSE."""
-    executor = build_agent(db, user_id)
+    executor = build_agent(db, user_id, user_context=user_context)
 
     async for event in executor.astream_events(
         {"input": user_input, "chat_history": chat_history},
@@ -252,6 +401,7 @@ async def stream_agent_response(
 async def extract_recipes_from_transcript(
     transcript: str,
     user_categories: list[str] | None = None,
+    user_context: str = "",
 ) -> list[dict[str, Any]]:
     """Parse recipe objects from a chat transcript using the LLM."""
     llm = ChatOpenAI(
@@ -274,9 +424,10 @@ async def extract_recipes_from_transcript(
         if categories
         else "User categories:\n- (none)\nIf no category is clear, return null for category."
     )
+    user_block = f"\n\n{user_context}" if user_context else ""
     prompt = (
         f"{RECIPE_EXTRACTION_PROMPT}\n\n"
-        f"{category_block}\n\n"
+        f"{category_block}{user_block}\n\n"
         f"Conversation transcript:\n{transcript}"
     )
     response = await llm.ainvoke([SystemMessage(content=prompt)])
@@ -304,6 +455,7 @@ async def extract_recipes_from_photo(
     image_bytes: bytes,
     image_mime_type: str,
     user_categories: list[str] | None = None,
+    user_context: str = "",
 ) -> list[dict[str, Any]]:
     """Parse recipe objects from a recipe photo using the multimodal model."""
     llm = ChatOpenAI(
@@ -326,8 +478,9 @@ async def extract_recipes_from_photo(
         if categories
         else "User categories:\n- (none)\nIf no category is clear, return null for category."
     )
+    user_block = f"\n\n{user_context}" if user_context else ""
     image_base64 = base64.b64encode(image_bytes).decode("utf-8")
-    prompt = f"{RECIPE_IMAGE_EXTRACTION_PROMPT}\n\n{category_block}"
+    prompt = f"{RECIPE_IMAGE_EXTRACTION_PROMPT}\n\n{category_block}{user_block}"
     response = await llm.ainvoke(
         [
             HumanMessage(
@@ -363,6 +516,7 @@ async def extract_ingredients_from_photo(
     image_bytes: bytes,
     image_mime_type: str,
     user_categories: list[str] | None = None,
+    user_context: str = "",
 ) -> list[dict[str, Any]]:
     """Parse pantry ingredient objects from a photo using the multimodal model."""
     llm = ChatOpenAI(
@@ -385,8 +539,9 @@ async def extract_ingredients_from_photo(
         if categories
         else "User categories:\n- (none)\nIf no category is clear, return null for category."
     )
+    user_block = f"\n\n{user_context}" if user_context else ""
     image_base64 = base64.b64encode(image_bytes).decode("utf-8")
-    prompt = f"{INGREDIENT_IMAGE_EXTRACTION_PROMPT}\n\n{category_block}"
+    prompt = f"{INGREDIENT_IMAGE_EXTRACTION_PROMPT}\n\n{category_block}{user_block}"
     response = await llm.ainvoke(
         [
             HumanMessage(

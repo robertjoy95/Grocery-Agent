@@ -1,7 +1,7 @@
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 function getHeaders() {
-  const headers = { "Content-Type": "application/json" };
+  const headers = {};
   const token = localStorage.getItem("token");
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
@@ -10,8 +10,13 @@ function getHeaders() {
 }
 
 export async function api(path, options = {}) {
+  const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
+  const headers = { ...getHeaders(), ...(options.headers || {}) };
+  if (!isFormData && options.body !== undefined && !headers["Content-Type"]) {
+    headers["Content-Type"] = "application/json";
+  }
   const res = await fetch(`${API_URL}${path}`, {
-    headers: getHeaders(),
+    headers,
     ...options,
   });
   if (res.status === 401) {
@@ -29,9 +34,10 @@ export async function api(path, options = {}) {
 }
 
 export async function apiStream(path, body) {
+  const headers = { ...getHeaders(), "Content-Type": "application/json" };
   const res = await fetch(`${API_URL}${path}`, {
     method: "POST",
-    headers: getHeaders(),
+    headers,
     body: JSON.stringify(body),
   });
   if (!res.ok) {

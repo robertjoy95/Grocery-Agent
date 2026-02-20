@@ -1,19 +1,28 @@
 import uuid
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File
 from sqlalchemy import select, asc, desc, cast, String
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.database import get_db
+from app.models.chat import ChatSession
 from app.models.recipe import Recipe
 from app.models.user import User
-from app.schemas.recipe import RecipeCreate, RecipeUpdate, RecipeOut
+from app.schemas.recipe import (
+    RecipeCreate,
+    RecipeUpdate,
+    RecipeOut,
+    RecipeConversationScanRequest,
+    RecipeConversationScanResponse,
+)
 from app.services.auth import get_current_user
+from app.services.ai import extract_recipes_from_transcript, extract_recipes_from_photo, _build_user_context
 
 router = APIRouter(prefix="/recipes", tags=["recipes"])
 
-SORTABLE_FIELDS = {"name", "prep_time_minutes", "created_at", "source"}
+SORTABLE_FIELDS = {"name", "prep_time_minutes", "created_at", "source", "category", "favourite"}
 
 
 @router.get("", response_model=list[RecipeOut])
@@ -70,11 +79,120 @@ async def create_recipe(
         prep_time_minutes=body.prep_time_minutes,
         instructions=body.instructions,
         source=body.source,
+        favourite=body.favourite,
+        category=body.category,
     )
     db.add(recipe)
     await db.commit()
     await db.refresh(recipe)
     return recipe
+
+
+@router.post("/scan-conversation", response_model=RecipeConversationScanResponse)
+async def scan_conversation_for_recipes(
+    body: RecipeConversationScanRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(ChatSession)
+        .where(ChatSession.id == body.session_id, ChatSession.user_id == user.id)
+        .options(selectinload(ChatSession.messages))
+    )
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+    if not session.messages:
+        return RecipeConversationScanResponse(recipes=[])
+
+    transcript_lines = [
+        f"{msg.role.upper()}: {msg.content.strip()}"
+        for msg in session.messages
+        if msg.content and msg.content.strip()
+    ]
+    transcript = "\n\n".join(transcript_lines)
+    if not transcript:
+        return RecipeConversationScanResponse(recipes=[])
+
+    category_rows = await db.execute(
+        select(Recipe.category)
+        .where(Recipe.user_id == user.id, Recipe.category.is_not(None))
+        .distinct()
+    )
+    user_categories = [
+        category.strip()
+        for category in category_rows.scalars().all()
+        if isinstance(category, str) and category.strip()
+    ]
+
+    user_context = _build_user_context(user.display_name, user.dietary_preferences)
+
+    try:
+        parsed = await extract_recipes_from_transcript(transcript, user_categories=user_categories, user_context=user_context)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Recipe extraction failed: {exc}",
+        ) from exc
+
+    recipes: list[RecipeCreate] = []
+    for candidate in parsed:
+        try:
+            recipes.append(RecipeCreate.model_validate(candidate))
+        except Exception:
+            continue
+
+    return RecipeConversationScanResponse(recipes=recipes)
+
+
+@router.post("/scan-photo", response_model=RecipeConversationScanResponse)
+async def scan_photo_for_recipes(
+    photo: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    content_type = (photo.content_type or "").lower()
+    if not content_type.startswith("image/"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file must be an image")
+
+    image_bytes = await photo.read()
+    if not image_bytes:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded image is empty")
+
+    category_rows = await db.execute(
+        select(Recipe.category)
+        .where(Recipe.user_id == user.id, Recipe.category.is_not(None))
+        .distinct()
+    )
+    user_categories = [
+        category.strip()
+        for category in category_rows.scalars().all()
+        if isinstance(category, str) and category.strip()
+    ]
+
+    user_context = _build_user_context(user.display_name, user.dietary_preferences)
+
+    try:
+        parsed = await extract_recipes_from_photo(
+            image_bytes=image_bytes,
+            image_mime_type=content_type,
+            user_categories=user_categories,
+            user_context=user_context,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Recipe extraction from image failed: {exc}",
+        ) from exc
+
+    recipes: list[RecipeCreate] = []
+    for candidate in parsed:
+        try:
+            recipes.append(RecipeCreate.model_validate(candidate))
+        except Exception:
+            continue
+
+    return RecipeConversationScanResponse(recipes=recipes)
 
 
 @router.put("/{recipe_id}", response_model=RecipeOut)

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import remyLogo from "../assets/remy_logo.png";
 
 export default function Signup() {
   const [username, setUsername] = useState("");
@@ -27,7 +28,10 @@ export default function Signup() {
 
   return (
     <div className="auth-page">
-      <h1>Grocery Agent</h1>
+      <div className="auth-brand">
+        <img className="auth-logo" src={remyLogo} alt="Remy logo" />
+        <h1 className="auth-title">Remy</h1>
+      </div>
       <p>Create a new account</p>
       <form className="auth-form" onSubmit={handleSubmit}>
         <input

@@ -4,8 +4,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import engine, Base
-from app.models import User, Recipe, ChatSession, ChatMessage, HouseholdIngredient  # noqa: F401
-from app.routers import auth, chat, recipes, ingredients
+from app.models import User, Recipe, ChatSession, ChatMessage, HouseholdIngredient, ShoppingList  # noqa: F401
+from app.routers import auth, chat, recipes, ingredients, profile, shopping_list
 
 
 @asynccontextmanager
@@ -29,6 +29,8 @@ app.include_router(auth.router)
 app.include_router(chat.router)
 app.include_router(recipes.router)
 app.include_router(ingredients.router)
+app.include_router(profile.router)
+app.include_router(shopping_list.router)
 
 
 @app.get("/health")
