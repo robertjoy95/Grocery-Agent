@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend"))
 
 from app.database import Base
-from app.models import User, Recipe, ChatSession, ChatMessage, HouseholdIngredient  # noqa: F401
+from app.models import User, Recipe, ChatSession, ChatMessage, HouseholdIngredient, ShoppingList
 
 config = context.config
 if config.config_file_name is not None:
